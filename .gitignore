@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Generated data
+data/*.txt
+data/*.csv
+!data/.gitkeep
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# STM32 build output (later stages)
+Debug/
+Release/
+build/
+*.elf
+*.hex
+*.bin
+*.map
