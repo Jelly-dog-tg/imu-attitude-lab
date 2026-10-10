@@ -1,0 +1,37 @@
+# Line-ending policy.
+#
+# The repository is consumed on Linux/WSL (primary target) and authored on
+# Windows. Without this file a Windows checkout would give shell scripts CRLF
+# endings, and bash would fail with "\r: command not found" on every line.
+#
+# Only the paths listed here are normalised; the Keil firmware tree is
+# deliberately left alone so its existing line endings are not churned.
+
+# Shell scripts and debugger command files must be LF, always.
+*.sh    text eol=lf
+*.gdb   text eol=lf
+
+# Source and documentation: normalise to LF in the repository.
+# NOTE: firmware C sources are intentionally NOT listed. The Keil project tree
+# keeps whatever endings it already has, so adding this file does not churn
+# files that are never built or tested on Linux.
+*.py     text eol=lf
+*.cpp    text eol=lf
+*.hpp    text eol=lf
+*.cmake  text eol=lf
+CMakeLists.txt text eol=lf
+
+# Configuration and docs.
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.md     text eol=lf
+*.txt    text eol=lf
+
+# Binary assets that must never be touched.
+*.png    binary
+*.jpg    binary
+*.pdf    binary
+*.zip    binary
+*.hex    binary
+*.bin    binary
+*.axf    binary
