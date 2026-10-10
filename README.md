@@ -12,6 +12,8 @@
 - [x] USART1 文本数据输出（9600 baud）
 - [x] Python 串口接收和 VPython 3D 模型显示
 - [x] 真实硬件串口协议解析器及单元测试
+- [x] 统一模拟数据、历史 CSV、真实串口三类数据输入
+- [x] 将不同输入统一保存为标准 CSV，并统计无效/跳过记录
 - [x] Git 忽略规则，避免提交虚拟环境和 Keil 编译产物
 - [x] 实验数据 CSV 保存、离线统计与终端回放
 - [x] 串口异常帧计数；[ ] 采样序号/心跳协议支持及精确丢帧统计
@@ -47,6 +49,28 @@ python -m host.replay data/session.csv --speed 4
 将 `COM3` 换成 Windows 设备管理器中 CH340 对应的串口号。波特率须与固件中的 `USART_BaudRate = 9600` 一致。启动前，关闭 XCOM 或其他已经打开同一个 COM 口的串口软件。
 
 如果想保留你原来的 VPython 脚本，可对照 `docs/visualize_original.py.txt`；新的 `host/visualize.py` 做了协议解析拆分、命令行端口配置和异常行计数。
+
+## 统一数据输入与采集
+
+使用 `host.collect` 将不同来源的数据写入统一的 CSV 格式，之后可以共用分析和回放工具。
+
+```powershell
+# 不需要硬件：生成 5 秒模拟姿态数据
+python -m host.collect --source simulated --duration 5 --hz 20 --output data/simulated.csv
+
+# 读取已有 CSV 并规范化输出
+python -m host.collect --source csv --input data/demo_attitude_offline.csv --output data/normalized.csv
+
+# 有真实设备时：读取 STM32 串口
+python -m host.collect --source serial --port COM3 --baud 9600 --duration 30 --output data/session.csv
+
+# 对统一 CSV 继续分析或回放
+python -m host.analyze data/simulated.csv
+python -m host.replay data/simulated.csv --no-wait --limit 10
+```
+
+具体说明见 [`docs/UNIFIED_DATA_PIPELINE.md`](docs/UNIFIED_DATA_PIPELINE.md)。
+模拟数据仅验证软件流程，不代表真实传感器性能；串口路径仍需硬件验证。
 
 ## 跑协议测试
 
