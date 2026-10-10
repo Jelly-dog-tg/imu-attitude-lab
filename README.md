@@ -13,7 +13,8 @@
 - [x] Python 串口接收和 VPython 3D 模型显示
 - [x] 真实硬件串口协议解析器及单元测试
 - [x] Git 忽略规则，避免提交虚拟环境和 Keil 编译产物
-- [ ] 实验数据保存 / 回放、异常帧与丢帧统计
+- [x] 实验数据 CSV 保存、离线统计与终端回放
+- [x] 串口异常帧计数；[ ] 采样序号/心跳协议支持及精确丢帧统计
 - [ ] I2C 故障恢复、采样时钟改进与算法误差评估
 - [ ] 磁力计校准与 Yaw 解算
 
@@ -26,6 +27,22 @@ python -m pip install -r requirements.txt
 python -m unittest discover -s tests -v
 python -m host.visualize --port COM3 --baud 9600
 ```
+
+## 记录、分析与回放实验
+
+```powershell
+# 记录 30 秒真实串口数据
+python -m host.record --port COM3 --baud 9600 --duration 30 --output data/session.csv
+
+# 查看姿态统计与大幅跳变提示
+python -m host.analyze data/session.csv
+
+# 按原始时间间隔回放，或 4 倍速回放
+python -m host.replay data/session.csv
+python -m host.replay data/session.csv --speed 4
+```
+
+详细说明见 [`docs/DATA_LOGGING_AND_REPLAY.md`](docs/DATA_LOGGING_AND_REPLAY.md)。
 
 将 `COM3` 换成 Windows 设备管理器中 CH340 对应的串口号。波特率须与固件中的 `USART_BaudRate = 9600` 一致。启动前，关闭 XCOM 或其他已经打开同一个 COM 口的串口软件。
 
@@ -62,6 +79,9 @@ imu-attitude-lab/
 ├── firmware/stm32f103/       # 现有 Keil 工程与固件说明
 ├── host/imu_lab/              # 协议、模拟器和命令行工具
 ├── host/visualize.py          # 对接真实 STM32 串口的 VPython 上位机
+├── host/record.py             # 串口实验数据记录到 CSV
+├── host/analyze.py            # CSV 统计与角度跳变提示
+├── host/replay.py             # CSV 实验时间回放
 ├── tests/                     # 单元测试
 ├── data/                      # 本地实验数据目录，不提交生成数据
 ├── docs/                      # 接线、设计、状态与迭代文档
