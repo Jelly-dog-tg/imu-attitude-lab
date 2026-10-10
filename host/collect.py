@@ -3,13 +3,19 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-import sys
 
 from host.imu_lab.csvlog import AttitudeCsvWriter
-from host.imu_lab.sources import SourceError, SourceStats, iter_source_samples
+from host.imu_lab.errors import (
+    EmptyDataError,
+    UsageError,
+    guarded,
+    require,
+    translate,
+)
+from host.imu_lab.sources import SourceStats, iter_source_samples
 
 
-def parse_args() -> argparse.Namespace:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Normalize attitude data from simulated, CSV, or live serial input"
     )
@@ -21,42 +27,51 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--hz", type=int, default=20, help="simulation sampling rate")
     parser.add_argument("--seed", type=int, default=7, help="simulation random seed")
     parser.add_argument("--output", default="data/collected.csv", help="output CSV path")
-    return parser.parse_args()
+    return parser
 
 
-def main() -> int:
-    args = parse_args()
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    return build_parser().parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    return guarded("host.collect", lambda: _collect(args))
+
+
+def _collect(args: argparse.Namespace) -> int:
     if args.source == "csv" and not args.input:
-        print("--input is required when --source csv", file=sys.stderr)
-        return 2
-    if args.source in {"simulated", "serial"} and args.duration <= 0:
-        print("--duration must be greater than zero", file=sys.stderr)
-        return 2
-    if args.source == "simulated" and args.hz <= 0:
-        print("--hz must be greater than zero", file=sys.stderr)
-        return 2
-    if args.source == "serial" and args.baud <= 0:
-        print("--baud must be greater than zero", file=sys.stderr)
-        return 2
+        raise UsageError(
+            "--input is required when --source csv",
+            hints=["example: python -m host.collect --source csv --input data/normalized.csv"],
+        )
+    if args.source in {"simulated", "serial"}:
+        require(args.duration > 0, "--duration must be greater than zero")
+    if args.source == "simulated":
+        require(args.hz > 0, "--hz must be greater than zero")
+    if args.source == "serial":
+        require(args.baud > 0, "--baud must be greater than zero")
 
     output = Path(args.output)
     if args.source == "csv" and Path(args.input).resolve() == output.resolve():
-        print("Input and output paths must be different; refusing to overwrite the source CSV.", file=sys.stderr)
-        return 2
+        raise UsageError(
+            "input and output paths must differ; refusing to overwrite the source CSV",
+            hints=["pass a different --output path"],
+        )
 
     stats = SourceStats()
     written = 0
+    records = iter_source_samples(
+        args.source,
+        input_path=args.input,
+        port=args.port,
+        baud=args.baud,
+        duration_s=args.duration,
+        hz=args.hz,
+        seed=args.seed,
+        stats=stats,
+    )
     try:
-        records = iter_source_samples(
-            args.source,
-            input_path=args.input,
-            port=args.port,
-            baud=args.baud,
-            duration_s=args.duration,
-            hz=args.hz,
-            seed=args.seed,
-            stats=stats,
-        )
         with AttitudeCsvWriter(output) as writer:
             for record in records:
                 writer.write(
@@ -66,11 +81,10 @@ def main() -> int:
                     timestamp_utc=record.timestamp_utc,
                 )
                 written += 1
-    except (OSError, ValueError, SourceError) as exc:
-        print(f"Collection failed: {exc}", file=sys.stderr)
-        return 2
     except KeyboardInterrupt:
         print("\nCollection interrupted by user.")
+    except OSError as exc:
+        raise translate(exc) from exc
 
     print(f"Source: {args.source}")
     print(f"Valid samples written: {written}")
@@ -78,8 +92,7 @@ def main() -> int:
     print(f"Skipped malformed CSV rows: {stats.skipped_csv_rows}")
     print(f"Output: {output}")
     if written == 0:
-        print("No valid samples were written.", file=sys.stderr)
-        return 1
+        raise EmptyDataError.for_source(args.source, skipped_rows=stats.skipped_csv_rows)
     if args.source == "simulated":
         print("Note: generated samples are synthetic and are not real sensor measurements.")
     return 0

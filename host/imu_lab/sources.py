@@ -14,6 +14,18 @@ from typing import Iterator, Literal
 
 from .attitude_protocol import AttitudeSample, parse_attitude_line
 from .csvlog import load_csv
+from .errors import SourceError, SourceUnavailableError, UsageError
+
+__all__ = [
+    "SourceError",
+    "SourceName",
+    "SourceRecord",
+    "SourceStats",
+    "iter_csv_samples",
+    "iter_serial_samples",
+    "iter_simulated_samples",
+    "iter_source_samples",
+]
 
 SourceName = Literal["simulated", "csv", "serial"]
 
@@ -36,10 +48,6 @@ class SourceStats:
     skipped_csv_rows: int = 0
 
 
-class SourceError(RuntimeError):
-    """Raised when a requested data source cannot be opened or read."""
-
-
 def iter_simulated_samples(
     duration_s: float = 5.0,
     hz: int = 20,
@@ -48,7 +56,7 @@ def iter_simulated_samples(
     """Yield deterministic, synthetic Pitch/Roll samples at a fixed rate."""
     _validate_duration(duration_s)
     if hz <= 0:
-        raise ValueError("hz must be greater than zero")
+        raise UsageError("hz must be greater than zero", context={"hz": hz})
 
     rng = random.Random(seed)
     count = int(duration_s * hz)
@@ -97,16 +105,14 @@ def iter_serial_samples(
     """
     _validate_duration(duration_s)
     if not port.strip():
-        raise ValueError("port must not be empty")
+        raise UsageError("port must not be empty")
     if baud <= 0:
-        raise ValueError("baud must be greater than zero")
+        raise UsageError("baud must be greater than zero", context={"baud": baud})
 
     try:
         import serial
     except ImportError as exc:
-        raise SourceError(
-            "pyserial is not installed; run: python -m pip install -r requirements.txt"
-        ) from exc
+        raise SourceUnavailableError.for_missing_dependency("pyserial", exc) from exc
 
     try:
         with serial.Serial(port, baud, timeout=0.2) as connection:
@@ -128,9 +134,7 @@ def iter_serial_samples(
                     raw_line=line,
                 )
     except serial.SerialException as exc:
-        raise SourceError(
-            f"cannot open/read serial port {port}: {exc}. Check the port, cable, driver, and whether another program uses it."
-        ) from exc
+        raise SourceUnavailableError.for_serial(port, exc) from exc
 
 
 def iter_source_samples(
@@ -150,14 +154,17 @@ def iter_source_samples(
         yield from iter_simulated_samples(duration_s=duration_s, hz=hz, seed=seed)
     elif source == "csv":
         if input_path is None:
-            raise ValueError("input_path is required when source='csv'")
+            raise UsageError("input_path is required when source='csv'")
         yield from iter_csv_samples(input_path, stats=counters)
     elif source == "serial":
         yield from iter_serial_samples(port=port, baud=baud, duration_s=duration_s, stats=counters)
     else:
-        raise ValueError(f"unsupported source: {source!r}")
+        raise UsageError(f"unsupported source: {source!r}")
 
 
 def _validate_duration(duration_s: float) -> None:
     if not math.isfinite(duration_s) or duration_s <= 0:
-        raise ValueError("duration_s must be a finite number greater than zero")
+        raise UsageError(
+            "duration_s must be a finite number greater than zero",
+            context={"duration_s": duration_s},
+        )

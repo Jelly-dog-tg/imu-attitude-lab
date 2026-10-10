@@ -2,55 +2,63 @@
 from __future__ import annotations
 
 import argparse
-import sys
 import time
 
 from host.imu_lab.attitude_protocol import parse_attitude_line
 from host.imu_lab.csvlog import AttitudeCsvWriter
+from host.imu_lab.errors import (
+    EmptyDataError,
+    SourceUnavailableError,
+    guarded,
+    require,
+    translate,
+)
 
 
-def parse_args() -> argparse.Namespace:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Record STM32 IMU attitude frames to CSV")
     parser.add_argument("--port", default="COM3", help="serial port, e.g. COM3")
     parser.add_argument("--baud", type=int, default=9600, help="baud rate matching firmware")
     parser.add_argument("--output", default="data/session.csv", help="output CSV path")
     parser.add_argument("--duration", type=float, default=30.0, help="recording duration in seconds")
     parser.add_argument("--max-samples", type=int, default=0, help="stop after this many valid samples; 0 means no limit")
-    return parser.parse_args()
+    return parser
 
 
-def main() -> int:
-    args = parse_args()
-    if args.duration <= 0:
-        print("--duration must be greater than zero", file=sys.stderr)
-        return 2
-    if args.max_samples < 0:
-        print("--max-samples cannot be negative", file=sys.stderr)
-        return 2
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    return build_parser().parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    return guarded("host.record", lambda: _record(args))
+
+
+def _record(args: argparse.Namespace) -> int:
+    require(args.duration > 0, "--duration must be greater than zero",
+            hints=["use --duration 30 for a typical 30 second capture"])
+    require(args.max_samples >= 0, "--max-samples cannot be negative")
 
     try:
         import serial
-    except ImportError:
-        print("Missing pyserial. Install dependencies with: python -m pip install -r requirements.txt", file=sys.stderr)
-        return 2
+    except ImportError as exc:
+        raise SourceUnavailableError.for_missing_dependency("pyserial", exc) from exc
 
     try:
-        ser = serial.Serial(args.port, args.baud, timeout=0.2)
+        connection = serial.Serial(args.port, args.baud, timeout=0.2)
     except serial.SerialException as exc:
-        print(f"Cannot open serial port {args.port}: {exc}", file=sys.stderr)
-        print("Check Device Manager, CH340, baud rate, and whether another program owns the port.", file=sys.stderr)
-        return 2
+        raise SourceUnavailableError.for_serial(args.port, exc) from exc
 
     received = 0
     invalid = 0
     started = time.monotonic()
     print(f"Recording {args.port} @ {args.baud} baud for up to {args.duration:g}s -> {args.output}")
     try:
-        with ser, AttitudeCsvWriter(args.output) as writer:
+        with connection, AttitudeCsvWriter(args.output) as writer:
             while time.monotonic() - started < args.duration:
                 if args.max_samples and received >= args.max_samples:
                     break
-                raw = ser.readline()
+                raw = connection.readline()
                 if not raw:
                     continue
                 line = raw.decode("utf-8", errors="replace").strip()
@@ -68,10 +76,12 @@ def main() -> int:
     except KeyboardInterrupt:
         print("\nRecording stopped by user.")
     except OSError as exc:
-        print(f"Cannot write output file: {exc}", file=sys.stderr)
-        return 2
+        raise translate(exc) from exc
+
     print(f"Finished: {received} valid samples, {invalid} invalid frames, saved to {args.output}")
-    return 0 if received > 0 else 1
+    if received == 0:
+        raise EmptyDataError.for_source(args.port, skipped_rows=invalid)
+    return 0
 
 
 if __name__ == "__main__":

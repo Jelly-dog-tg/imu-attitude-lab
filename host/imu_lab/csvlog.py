@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Iterable, TextIO
 
 from host.imu_lab.attitude_protocol import AttitudeSample
+from host.imu_lab.errors import DataFormatError, UsageError
 
 CSV_FIELDS = (
     "timestamp_utc",
@@ -48,7 +49,10 @@ class AttitudeCsvWriter:
         timestamp_utc: str | None = None,
     ) -> None:
         if not math.isfinite(elapsed_s) or elapsed_s < 0:
-            raise ValueError("elapsed_s must be a finite non-negative number")
+            raise UsageError(
+                "elapsed_s must be a finite non-negative number",
+                context={"elapsed_s": elapsed_s},
+            )
         timestamp = timestamp_utc or datetime.now(timezone.utc).isoformat(timespec="milliseconds")
         self._writer.writerow(
             {
@@ -86,7 +90,15 @@ def load_csv(path: str | Path) -> tuple[list[CsvRecord], int]:
     with Path(path).open("r", newline="", encoding="utf-8-sig") as file:
         reader = csv.DictReader(file)
         if reader.fieldnames is None or not required.issubset(set(reader.fieldnames)):
-            raise ValueError(f"CSV must contain columns: {', '.join(sorted(required))}")
+            found = ", ".join(reader.fieldnames or []) or "<empty header>"
+            raise DataFormatError(
+                f"CSV must contain columns: {', '.join(sorted(required))}",
+                hints=[
+                    "log the data with `python -m host.collect --source ...` to get the standard schema",
+                    f"columns found in this file: {found}",
+                ],
+                context={"required": sorted(required), "found": list(reader.fieldnames or [])},
+            )
         for row in reader:
             try:
                 elapsed_s = float(row["elapsed_s"])
