@@ -35,3 +35,15 @@ Thumbs.db
 
 # Generated experiment reports
 reports/
+
+# C++ build trees and CMake artefacts
+cpp/build/
+cpp/build-*/
+build-interop/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+
+# Editor/tooling droppings
+.cache/
