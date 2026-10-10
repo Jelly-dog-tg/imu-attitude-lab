@@ -1,104 +1,73 @@
 #include "stm32f10x.h"
 #include <stdio.h>
 #include <math.h> // ?????,???? atan2, sqrt ?
-#define M_PI 3.14159265358979323846f // ???? PI
+#define M_PI 3.14159265358979323846f 
 
-//--------------------------------------------------------------------------------
-// --- ???????? ---
-//--------------------------------------------------------------------------------
-#define MPU9250_ADDR    0x68    // MPU9250 ? I2C ??
-#define G_SENSITIVITY   131.0f  // ?????????±250dps??,????????
-#define DT              0.01f   // ???????,??:??????10ms,???0.01s?
 
-// ????????????????
+#define MPU9250_ADDR    0x68    
+#define G_SENSITIVITY   131.0f  
+#define DT              0.01f   
+
 float pitch = 0.0f, roll = 0.0f;
 
-//--------------------------------------------------------------------------------
-// --- ???? ---
-//--------------------------------------------------------------------------------
 void delay_ms(int n);
 void USART1_Config(void);
 void I2C1_Init(void);
 void MPU9250_Init(void);
 void MPU9250_Write_Byte(u8 reg, u8 data);
 u8 MPU9250_Read_Byte(u8 reg);
-// ??:???????,?????6?????
+
 void MPU9250_Read_6Axis_Data(short *ax, short *ay, short *az, short *gx, short *gy, short *gz);
 int fputc(int ch, FILE *f);
 
-//--------------------------------------------------------------------------------
-// --- ??? Main ?? ---
-//--------------------------------------------------------------------------------
 int main(void)
 {
-    // ??????
-    short ax, ay, az, gx, gy, gz; // ????????
-    float accel_pitch, accel_roll;    // ????????????
-    float gyro_pitch_rate, gyro_roll_rate; // ?????????
+    short ax, ay, az, gx, gy, gz; 
+    float accel_pitch, accel_roll;    
+    float gyro_pitch_rate, gyro_roll_rate; 
 
-    // 1. ???????
     USART1_Config();
     I2C1_Init();    
     MPU9250_Init(); 
     
-    // 2. ??????
     printf("--- Complementary Filter Demo ---\r\n");
     delay_ms(100);
 
-    // 3. ?????,???????
     while(1)
     {
-        // ... (????????????) ...
-        
-        // a. ??6?????
         MPU9250_Read_6Axis_Data(&ax, &ay, &az, &gx, &gy, &gz);
         
-        // b. ?????? -> ??
         accel_roll = atan2((float)ay, (float)az) * 180.0f / M_PI;
         accel_pitch = atan2((float)-ax, sqrt((float)ay * ay + (float)az * az)) * 180.0f / M_PI;
         
-        // c. ????? -> ???
         gyro_roll_rate = (float)gx / G_SENSITIVITY;
         gyro_pitch_rate = (float)gy / G_SENSITIVITY;
         
-        // d. ????:????
         roll = 0.98f * (roll + gyro_roll_rate * DT) + 0.02f * accel_roll;
         pitch = 0.98f * (pitch + gyro_pitch_rate * DT) + 0.02f * accel_pitch;
 
-        // ?--- ?????! ---?
-        // e. ???printf,???sprintf??????,??????
+        char buffer[64]; 
+        sprintf(buffer, "P:%.2f,R:%.2f\n", pitch, roll); 
         
-        char buffer[64]; // ?????????????
-        sprintf(buffer, "P:%.2f,R:%.2f\n", pitch, roll); // ???????buffer?
-        
-        // ??????????buffer????
         for(int i = 0; buffer[i] != '\0'; i++)
         {
-            fputc(buffer[i], NULL); // ????????fputc??
+            fputc(buffer[i], NULL); 
         }
         
-        delay_ms(10); // ??10ms?????
+        delay_ms(10);
     }
 }
 
-//--------------------------------------------------------------------------------
-// --- ??????? ---
-//--------------------------------------------------------------------------------
 
-/**
-  * @brief  MPU9250???,??????????
-  */
 void MPU9250_Init(void)
 {
-    MPU9250_Write_Byte(0x6B, 0x00); // 1. ????
-    MPU9250_Write_Byte(0x1A, 0x06); // 2. ???????
-    MPU9250_Write_Byte(0x1B, 0x00); // 3. ???????? ±250dps (?????131)
-    MPU9250_Write_Byte(0x1C, 0x00); // 4. ????????? ±2g
+    MPU9250_Write_Byte(0x6B, 0x00); 
+    MPU9250_Write_Byte(0x1A, 0x06); 
+    MPU9250_Write_Byte(0x1B, 0x00);
+    MPU9250_Write_Byte(0x1C, 0x00);
 }
 
-/**
-  * @brief  ??????MPU9250????6?????
-  */
+
 void MPU9250_Read_6Axis_Data(short *ax, short *ay, short *az, short *gx, short *gy, short *gz)
 {
     u8 buf[14];
@@ -122,135 +91,95 @@ void MPU9250_Read_6Axis_Data(short *ax, short *ay, short *az, short *gx, short *
 }
 
 
-/*
- * ==============================================================================
- *  ???????????????????????,????????,?????
- * ==============================================================================
- */
-
-/**
-  * @brief  ?? I2C1 (?? PB6??SCL, PB7??SDA)
-  */
 void I2C1_Init(void)
 {
     GPIO_InitTypeDef GPIO_InitStructure;
     I2C_InitTypeDef  I2C_InitStructure;
 
-    // ?? GPIOB ? I2C1 ???
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOB, ENABLE);
     RCC_APB1PeriphClockCmd(RCC_APB1Periph_I2C1, ENABLE);
 
-    // ?? I2C ??
     GPIO_InitStructure.GPIO_Pin = GPIO_Pin_6 | GPIO_Pin_7;
-    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_OD; // ??????
+    GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_OD;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
     GPIO_Init(GPIOB, &GPIO_InitStructure);
 
-    // ?? I2C ??
-    I2C_InitStructure.I2C_ClockSpeed = 100000; // 100KHz ????
+    I2C_InitStructure.I2C_ClockSpeed = 100000; 
     I2C_InitStructure.I2C_Mode = I2C_Mode_I2C;
     I2C_InitStructure.I2C_DutyCycle = I2C_DutyCycle_2;
-    I2C_InitStructure.I2C_OwnAddress1 = 0x30; // STM32???????,?????
+    I2C_InitStructure.I2C_OwnAddress1 = 0x30;
     I2C_InitStructure.I2C_Ack = I2C_Ack_Enable;
     I2C_InitStructure.I2C_AcknowledgedAddress = I2C_AcknowledgedAddress_7bit;
     I2C_Init(I2C1, &I2C_InitStructure);
-    
-    // ?? I2C1
+
     I2C_Cmd(I2C1, ENABLE);
 }
 
-/**
-  * @brief  ?? I2C ? MPU9250 ????????????
-  * @param  reg:  ???????
-  * @param  data: ??????
-  */
 void MPU9250_Write_Byte(u8 reg, u8 data)
 {
-    // 1. ??????
     I2C_GenerateSTART(I2C1, ENABLE);
     while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_MODE_SELECT));
 
-    // 2. ?? MPU9250 ???,????“??”??
     I2C_Send7bitAddress(I2C1, MPU9250_ADDR << 1, I2C_Direction_Transmitter);
     while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED));
 
-    // 3. ???????????
     I2C_SendData(I2C1, reg);
     while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_BYTE_TRANSMITTED));
 
-    // 4. ????????
     I2C_SendData(I2C1, data);
     while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_BYTE_TRANSMITTED));
 
-    // 5. ??????
     I2C_GenerateSTOP(I2C1, ENABLE);
 }
 
-/**
-  * @brief  ?? I2C ? MPU9250 ????????????
-  * @param  reg: ???????
-  * @retval ?????
-  */
+
 u8 MPU9250_Read_Byte(u8 reg)
 {
     u8 data;
 
-    // ??????
     while(I2C_GetFlagStatus(I2C1, I2C_FLAG_BUSY));
 
-    // 1. ??????
     I2C_GenerateSTART(I2C1, ENABLE);
     while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_MODE_SELECT));
 
-    // 2. ?? MPU9250 ??,????“??”??,????????????
     I2C_Send7bitAddress(I2C1, MPU9250_ADDR << 1, I2C_Direction_Transmitter);
     while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_TRANSMITTER_MODE_SELECTED));
     I2C_Cmd(I2C1, ENABLE); // SCL????
     I2C_SendData(I2C1, reg);
     while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_BYTE_TRANSMITTED));
 
-    // 3. ????????
     I2C_GenerateSTART(I2C1, ENABLE);
     while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_MODE_SELECT));
 
-    // 4. ???? MPU9250 ??,??????“??”??
     I2C_Send7bitAddress(I2C1, MPU9250_ADDR << 1, I2C_Direction_Receiver);
     while(!I2C_CheckEvent(I2C1, I2C_EVENT_MASTER_RECEIVER_MODE_SELECTED));
 
-    // 5. ??????
     while(I2C_GetFlagStatus(I2C1, I2C_FLAG_RXNE) == RESET);
     data = I2C_ReceiveData(I2C1);
 
-    // 6. ??“???”?????
     I2C_AcknowledgeConfig(I2C1, DISABLE);
     I2C_GenerateSTOP(I2C1, ENABLE);
     
     return data;
 }
 
-/**
-  * @brief  ????1 (USART1),?? PA9 ?? TX, PA10 ?? RX
-  */
+
 void USART1_Config(void)
 {
     GPIO_InitTypeDef GPIO_InitStructure;
     USART_InitTypeDef USART_InitStructure;
 
-    // ?? GPIOA ? USART1 ???
     RCC_APB2PeriphClockCmd(RCC_APB2Periph_GPIOA | RCC_APB2Periph_USART1, ENABLE);
-    
-    // ?? PA9 (TX)
+
     GPIO_InitStructure.GPIO_Pin = GPIO_Pin_9;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_AF_PP;
     GPIO_InitStructure.GPIO_Speed = GPIO_Speed_50MHz;
     GPIO_Init(GPIOA, &GPIO_InitStructure);
-    
-    // ?? PA10 (RX)
+
     GPIO_InitStructure.GPIO_Pin = GPIO_Pin_10;
     GPIO_InitStructure.GPIO_Mode = GPIO_Mode_IN_FLOATING;
     GPIO_Init(GPIOA, &GPIO_InitStructure);
-    
-    // ??????
+
     USART_InitStructure.USART_BaudRate = 9600;
     USART_InitStructure.USART_WordLength = USART_WordLength_8b;
     USART_InitStructure.USART_StopBits = USART_StopBits_1;
@@ -258,33 +187,26 @@ void USART1_Config(void)
     USART_InitStructure.USART_HardwareFlowControl = USART_HardwareFlowControl_None;
     USART_InitStructure.USART_Mode = USART_Mode_Rx | USART_Mode_Tx;
     USART_Init(USART1, &USART_InitStructure);
-    
-    // ?? USART1
+
     USART_Cmd(USART1, ENABLE);
 }
 
-/**
-  * @brief  ???C??printf?????1
-  */
+
 int fputc(int ch, FILE *f)
 {
-    // ???????????1
     USART_SendData(USART1, (uint8_t) ch);
-    
-    // ??????
+
     while (USART_GetFlagStatus(USART1, USART_FLAG_TXE) == RESET);
     
     return ch;
 }
 
-/**
-  * @brief  ???????????? (???)
-  */
+
 void delay_ms(int n)
 {
     volatile int i, j;
     for(i = 0; i < n; i++)
     {
-        for(j = 0; j < 10000; j++); // ??CPU???????
+        for(j = 0; j < 10000; j++); 
     }
 }   
