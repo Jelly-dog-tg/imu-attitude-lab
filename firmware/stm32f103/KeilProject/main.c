@@ -1,6 +1,6 @@
 #include "stm32f10x.h"
 #include <stdio.h>
-#include <math.h> // ?????,???? atan2, sqrt ?
+#include <math.h> 
 #define M_PI 3.14159265358979323846f 
 
 
