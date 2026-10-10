@@ -53,10 +53,32 @@ struct WorkerAccumulator {
     return std::chrono::duration<double>(Clock::now().time_since_epoch()).count();
 }
 
+/// Append `value` zero-padded to at least `width` digits.
+///
+/// Written by hand instead of using `"%04d"` because GCC 13's
+/// `-Wformat-truncation` cannot bound `tm_year + 1900` and therefore rejects the
+/// whole `snprintf` under `-Werror`. Building the timestamp from components
+/// removes the guesswork rather than suppressing the warning.
+void append_padded(std::string& out, int value, int width) {
+    char digits[16] = {};
+    int length = 0;
+    unsigned int magnitude = value < 0 ? 0u : static_cast<unsigned int>(value);
+    do {
+        digits[length++] = static_cast<char>('0' + static_cast<int>(magnitude % 10u));
+        magnitude /= 10u;
+    } while (magnitude != 0 && length < static_cast<int>(sizeof(digits)));
+    while (length < width && length < static_cast<int>(sizeof(digits))) {
+        digits[length++] = '0';
+    }
+    while (length > 0) {
+        out.push_back(digits[--length]);
+    }
+}
+
 /// ISO-8601 UTC timestamp with millisecond precision.
 ///
-/// Written by hand so the C++ log stays byte-compatible with the Python one
-/// (which uses `datetime.now(timezone.utc).isoformat(timespec="milliseconds")`).
+/// Kept byte-compatible with the Python side, which uses
+/// `datetime.now(timezone.utc).isoformat(timespec="milliseconds")`.
 [[nodiscard]] std::string format_utc(std::chrono::system_clock::time_point point) {
     const std::time_t seconds = std::chrono::system_clock::to_time_t(point);
     const auto since_epoch = point.time_since_epoch();
@@ -70,12 +92,23 @@ struct WorkerAccumulator {
     gmtime_r(&seconds, &broken_down);
 #endif
 
-    char buffer[40] = {};
-    std::snprintf(buffer, sizeof(buffer), "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ",
-                  broken_down.tm_year + 1900, broken_down.tm_mon + 1, broken_down.tm_mday,
-                  broken_down.tm_hour, broken_down.tm_min, broken_down.tm_sec,
-                  static_cast<int>(millis));
-    return buffer;
+    std::string text;
+    text.reserve(28);
+    append_padded(text, broken_down.tm_year + 1900, 4);
+    text.push_back('-');
+    append_padded(text, broken_down.tm_mon + 1, 2);
+    text.push_back('-');
+    append_padded(text, broken_down.tm_mday, 2);
+    text.push_back('T');
+    append_padded(text, broken_down.tm_hour, 2);
+    text.push_back(':');
+    append_padded(text, broken_down.tm_min, 2);
+    text.push_back(':');
+    append_padded(text, broken_down.tm_sec, 2);
+    text.push_back('.');
+    append_padded(text, static_cast<int>(millis), 3);
+    text.push_back('Z');
+    return text;
 }
 
 /// Quote a CSV field the way Python's csv module does: only when needed, and
@@ -97,10 +130,32 @@ struct WorkerAccumulator {
     return quoted;
 }
 
+/// Format a double with a fixed number of decimals, never truncating.
+///
+/// The buffer is sized for the worst case a finite double can produce
+/// (`-1.797...e308` with 6 decimals needs ~317 characters), and the return value
+/// is honoured rather than assumed.
 [[nodiscard]] std::string fixed(double value, int precision) {
-    char buffer[64] = {};
-    std::snprintf(buffer, sizeof(buffer), "%.*f", precision, value);
-    return buffer;
+    constexpr std::size_t kBufferSize = 384;
+    char buffer[kBufferSize] = {};
+#if defined(__GNUC__) && !defined(__clang__)
+    // GCC 13 cannot prove that `%.*f` stays inside the buffer because the
+    // precision is a runtime value. The size above is derived from the worst
+    // case and the result is clamped below, so the warning is a false positive.
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Wformat-truncation"
+#endif
+    const int written = std::snprintf(buffer, sizeof(buffer), "%.*f", precision, value);
+#if defined(__GNUC__) && !defined(__clang__)
+#  pragma GCC diagnostic pop
+#endif
+    if (written <= 0) {
+        return {};
+    }
+    const auto length = static_cast<std::size_t>(written) < kBufferSize
+                            ? static_cast<std::size_t>(written)
+                            : kBufferSize - 1;
+    return std::string(buffer, length);
 }
 
 }  // namespace

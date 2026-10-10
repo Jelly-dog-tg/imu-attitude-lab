@@ -292,21 +292,35 @@ bool AttitudeLineParser::looks_like_imu_record(std::string_view line) noexcept {
 }
 
 std::string format_attitude_line(const AttitudeSample& sample) {
-    char buffer[96];
-    if (sample.x.has_value() && sample.y.has_value()) {
-        const int written = std::snprintf(buffer, sizeof(buffer), "P:%.6f,R:%.6f,X:%.6f,Y:%.6f",
-                                          sample.pitch_deg, sample.roll_deg, *sample.x, *sample.y);
-        if (written > 0) {
-            return std::string(buffer, static_cast<std::size_t>(written));
-        }
-    } else {
-        const int written = std::snprintf(buffer, sizeof(buffer), "P:%.6f,R:%.6f",
-                                          sample.pitch_deg, sample.roll_deg);
-        if (written > 0) {
-            return std::string(buffer, static_cast<std::size_t>(written));
-        }
+    // Sized for the worst case a finite double can produce: two values of
+    // `-1.797...e308` with 6 decimals need roughly 320 characters each.
+    constexpr std::size_t kBufferSize = 768;
+    char buffer[kBufferSize] = {};
+
+#if defined(__GNUC__) && !defined(__clang__)
+    // GCC 13 cannot bound `%.6f` of a runtime double and would otherwise reject
+    // this under -Werror. The size above is derived from the worst case and the
+    // result is clamped below, so the warning is a false positive here.
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Wformat-truncation"
+#endif
+    const int written =
+        (sample.x.has_value() && sample.y.has_value())
+            ? std::snprintf(buffer, sizeof(buffer), "P:%.6f,R:%.6f,X:%.6f,Y:%.6f",
+                            sample.pitch_deg, sample.roll_deg, *sample.x, *sample.y)
+            : std::snprintf(buffer, sizeof(buffer), "P:%.6f,R:%.6f", sample.pitch_deg,
+                            sample.roll_deg);
+#if defined(__GNUC__) && !defined(__clang__)
+#  pragma GCC diagnostic pop
+#endif
+
+    if (written <= 0) {
+        return {};
     }
-    return {};
+    const auto length = static_cast<std::size_t>(written) < kBufferSize
+                            ? static_cast<std::size_t>(written)
+                            : kBufferSize - 1;
+    return std::string(buffer, length);
 }
 
 }  // namespace imu_lab
