@@ -32,3 +32,6 @@ firmware/**/Listings/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Generated experiment reports
+reports/

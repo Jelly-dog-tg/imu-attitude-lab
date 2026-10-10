@@ -106,6 +106,7 @@ imu-attitude-lab/
 ├── host/record.py             # 串口实验数据记录到 CSV
 ├── host/analyze.py            # CSV 统计与角度跳变提示
 ├── host/replay.py             # CSV 实验时间回放
+├── host/report.py             # 从 CSV 生成姿态曲线图与 Markdown 实验报告
 ├── tests/                     # 单元测试
 ├── data/                      # 本地实验数据目录，不提交生成数据
 ├── docs/                      # 接线、设计、状态与迭代文档
@@ -119,3 +120,11 @@ imu-attitude-lab/
 > 基于 STM32F103C8T6 与 MPU9250 实现嵌入式姿态测量原型，完成 I2C 六轴传感器数据采集、加速度计/陀螺仪互补滤波及 Pitch/Roll 实时解算；通过 UART/CH340 建立上下位机通信，使用 Python、pyserial 和 VPython 开发实时三维姿态可视化工具，并补充串口协议解析测试与工程文档。
 
 只能保留自己实际做过且能现场解释、复现的内容。不要将计划中的磁力计融合、Yaw、精度指标或可靠定位写成已经完成。
+
+## 自动生成实验报告（第四阶段）
+
+```powershell
+python -m host.report data/simulated.csv --output-dir reports/simulated --data-kind simulated
+```
+
+报告输出目录包含 `attitude_plot.png` 和 `report.md`。完整说明请查看 [`docs/EXPERIMENT_REPORT.md`](docs/EXPERIMENT_REPORT.md)。若数据是模拟的，请使用 `--data-kind simulated`；不要把模拟统计当作实机测量指标。
