@@ -1,0 +1,210 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  # --------------------------------------------------------------------- #
+  # Python host tooling: unit tests, offline pipeline smoke run, artifact.
+  # --------------------------------------------------------------------- #
+  python:
+    name: python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # matplotlib and pyserial keep every optional branch of the pipeline
+          # exercised instead of silently skipping stages.
+          python -m pip install -r requirements.txt
+
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+
+      - name: One-command pipeline (offline, no hardware)
+        run: |
+          python -m host.pipeline --source simulated --duration 2 --hz 25 \
+            --output-dir reports/ci --quiet
+
+      - name: Assert every artifact was produced
+        run: |
+          set -eu
+          for f in normalized.csv analysis.json attitude_plot.png report.md pipeline.log; do
+            test -s "reports/ci/$f" || { echo "missing artifact: $f"; exit 1; }
+          done
+          echo "--- report.md ---"
+          cat reports/ci/report.md
+
+      - name: Validation must reject a malformed file with exit code 3
+        run: |
+          set +e
+          printf 'a,b,c\n1,2,3\n' > /tmp/bad.csv
+          python -m host.pipeline validate /tmp/bad.csv
+          code=$?
+          set -e
+          echo "exit=$code"
+          test "$code" -eq 3
+
+      - name: Upload pipeline artifacts
+        if: matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-reports
+          path: reports/ci/
+          if-no-files-found: error
+
+  # --------------------------------------------------------------------- #
+  # C++17 core: build + unit tests on GCC, Clang and MSVC.
+  # All binaries land in <build>/bin for every generator and configuration.
+  # --------------------------------------------------------------------- #
+  cpp:
+    name: cpp ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-gcc
+            os: ubuntu-latest
+            cxx: g++-13
+            cc: gcc-13
+          - name: linux-clang
+            os: ubuntu-latest
+            cxx: clang++
+            cc: clang
+          - name: windows-msvc
+            os: windows-latest
+            cxx: ""
+            cc: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install GCC 13 (Linux)
+        if: matrix.name == 'linux-gcc'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-13
+
+      - name: Configure (strict warnings, warnings are errors)
+        env:
+          CXX: ${{ matrix.cxx }}
+          CC: ${{ matrix.cc }}
+        run: >
+          cmake -S cpp -B cpp/build
+          -DCMAKE_BUILD_TYPE=Release
+          -DIMU_LAB_WERROR=ON
+          -DIMU_LAB_BUILD_BENCH=ON
+
+      - name: Build
+        run: cmake --build cpp/build --config Release --parallel
+
+      - name: Run C++ unit tests
+        run: ctest --test-dir cpp/build -C Release --output-on-failure
+
+      - name: Smoke-run the C++ CLI on its own generated data
+        shell: bash
+        run: |
+          set -eu
+          BIN=cpp/build/bin/imu_lab_cli
+          if [ -x "${BIN}.exe" ]; then BIN="${BIN}.exe"; fi
+          "$BIN" stream --frames 5000 --hz 100 --workers 3 --csv /tmp/cpp_stream.csv
+          "$BIN" analyze /tmp/cpp_stream.csv --jump-threshold 30
+          "$BIN" validate /tmp/cpp_stream.csv
+
+  # --------------------------------------------------------------------- #
+  # Sanitizers: catch memory and data-race bugs the normal build cannot.
+  # --------------------------------------------------------------------- #
+  cpp-sanitizers:
+    name: cpp sanitizer (${{ matrix.sanitizer }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [address+undefined, thread]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure with ${{ matrix.sanitizer }} sanitizer
+        run: >
+          cmake -S cpp -B cpp/build
+          -DCMAKE_BUILD_TYPE=Debug
+          -DIMU_LAB_SANITIZER=${{ matrix.sanitizer }}
+          -DIMU_LAB_BUILD_BENCH=ON
+
+      - name: Build
+        run: cmake --build cpp/build --parallel
+
+      - name: Run unit tests under the sanitizer
+        env:
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+          ASAN_OPTIONS: detect_leaks=1
+          TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
+        run: ctest --test-dir cpp/build --output-on-failure
+
+  # --------------------------------------------------------------------- #
+  # Concurrency/stability soak plus the Python <-> C++ interoperability
+  # contract. This is the job that proves the two implementations agree.
+  # --------------------------------------------------------------------- #
+  cpp-stability:
+    name: cpp stability + interop
+    runs-on: ubuntu-latest
+    needs: cpp
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Configure and build
+        run: |
+          cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release -DIMU_LAB_BUILD_BENCH=ON
+          cmake --build cpp/build --parallel
+
+      - name: Pipeline soak + determinism sweep (1/2/4 workers must agree)
+        run: cpp/build/bin/imu_lab_bench --frames 200000 --sweep --queue-capacity 1024 --anomaly-rate 0.02 --verbose
+
+      - name: Queue micro-benchmark (records scaling behaviour on this OS)
+        run: cpp/build/bin/imu_lab_bench_queue --items 500000
+
+      - name: Install Python dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Interoperability - Python reads a log written by C++
+        run: |
+          set -eu
+          cpp/build/bin/imu_lab_cli stream --frames 2000 --hz 100 --workers 2 \
+            --csv /tmp/from_cpp.csv --quiet
+          python -m host.pipeline validate /tmp/from_cpp.csv
+          python -m host.analyze /tmp/from_cpp.csv
+
+      - name: Interoperability - C++ reads a log written by Python
+        run: |
+          set -eu
+          python -m host.pipeline --source simulated --duration 2 --hz 50 \
+            --output-dir /tmp/pyout --quiet
+          cpp/build/bin/imu_lab_cli validate /tmp/pyout/normalized.csv
+          cpp/build/bin/imu_lab_cli analyze /tmp/pyout/normalized.csv
