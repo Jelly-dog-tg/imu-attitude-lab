@@ -1,78 +1,77 @@
-# IMU Attitude Lab：嵌入式姿态测量与上位机工具链
+# IMU Attitude Lab：STM32 姿态测量与 PC 端三维可视化
 
-一个面向学习与作品集的端到端工程：以 STM32F103 + MPU9250 为目标硬件，逐步实现 IMU 数据采集、串口协议、姿态解算、PC 端可视化、数据记录和误差分析。
+这是一个真实硬件驱动的学习与作品集项目，核心链路是 **STM32F103C8T6 + MPU9250 → I2C 采集 → 互补滤波 → UART/CH340 → Python/VPython 实时 3D 姿态显示**。
 
-> 当前仓库是第一阶段起步版：先在没有硬件的电脑上运行“模拟数据 → 协议解析 → 文件记录 → 单元测试”流程。它不是已经验证过的 STM32 固件；真实硬件部分会在后续阶段接入并测试。
+> 当前已完成范围：真实硬件连接、6 轴（加速度计 + 陀螺仪）数据读取、互补滤波 Pitch/Roll 输出和上位机三维可视化。当前固件没有实现磁力计读取 / Yaw 融合，也没有实现可靠的位移定位。文档会明确区分已完成和计划扩展内容。
 
-## 项目能力路线
+## 功能
 
-- [x] 结构化的 Python 包、串口行协议解析器、可重复的模拟数据流
-- [x] 协议解析单元测试
-- [ ] PC 串口接收、实时曲线与 CSV 记录
-- [ ] STM32F103 + MPU9250 传感器驱动与原始数据采集
-- [ ] 加速度计/陀螺仪互补滤波与姿态角计算
-- [ ] 磁力计校准、航向角与误差分析
-- [ ] 故障注入、日志、配置、测试和持续集成
-- [ ] 演示视频、架构图、复现实验步骤和发布版本
+- [x] STM32F103C8T6 Keil MDK 工程
+- [x] I2C1 读取 MPU9250 加速度计、陀螺仪数据
+- [x] 互补滤波输出 Pitch / Roll
+- [x] USART1 文本数据输出（9600 baud）
+- [x] Python 串口接收和 VPython 3D 模型显示
+- [x] 真实硬件串口协议解析器及单元测试
+- [x] Git 忽略规则，避免提交虚拟环境和 Keil 编译产物
+- [ ] 实验数据保存 / 回放、异常帧与丢帧统计
+- [ ] I2C 故障恢复、采样时钟改进与算法误差评估
+- [ ] 磁力计校准与 Yaw 解算
 
-## 环境
+## 运行上位机
 
-- Windows 10/11 或 Linux
-- Python 3.10+（起步版只用 Python 标准库）
-- Git；Windows 用户可以继续使用 TortoiseGit
-- 后续硬件阶段需要 STM32CubeIDE / STM32CubeMX，以及 STM32F103、MPU9250 模块和串口连接
-
-## 第一次运行
-
-在仓库根目录打开 PowerShell / Terminal：
+需要 Python 3.10+、串口转 USB 设备和已在工作的 STM32 固件。
 
 ```powershell
-python --version
+python -m pip install -r requirements.txt
 python -m unittest discover -s tests -v
-python -m host.imu_lab.cli simulate --seconds 5 --hz 20 --output data/demo_stream.txt
+python -m host.visualize --port COM3 --baud 9600
 ```
 
-成功后应看到测试通过提示，以及约 100 条模拟采样记录。`data/demo_stream.txt` 是本地生成文件，默认不会被 Git 跟踪。
+将 `COM3` 换成 Windows 设备管理器中 CH340 对应的串口号。波特率须与固件中的 `USART_BaudRate = 9600` 一致。启动前，关闭 XCOM 或其他已经打开同一个 COM 口的串口软件。
 
-## 串口协议（当前版本）
+如果想保留你原来的 VPython 脚本，可对照 `docs/visualize_original.py.txt`；新的 `host/visualize.py` 做了协议解析拆分、命令行端口配置和异常行计数。
 
-每行一条记录，逗号分隔，结尾为换行符：
+## 跑协议测试
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
+这些自动化测试只测试 Python 协议解析与模拟器逻辑；它们不能代替硬件实测，也不能证明固件在所有传感器/接线条件下都稳定。
+
+## 硬件与协议
+
+- 接线：[`docs/HARDWARE_WIRING.md`](docs/HARDWARE_WIRING.md)
+- 系统设计：[`docs/DESIGN.md`](docs/DESIGN.md)
+- 完成情况及限制：[`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)
+- 迭代路线：[`docs/ROADMAP.md`](docs/ROADMAP.md)
+- 固件说明：[`firmware/stm32f103/README.md`](firmware/stm32f103/README.md)
+
+当前 MCU 输出格式是一行一帧：
 
 ```text
-IMU,seq,t_ms,ax_g,ay_g,az_g,gx_dps,gy_dps,gz_dps,mx_uT,my_uT,mz_uT,roll_deg,pitch_deg,yaw_deg
+P:10.25,R:-5.50
 ```
 
-- `seq`：递增采样序号
-- `t_ms`：设备启动后的毫秒数
-- `ax_g ... az_g`：加速度计，单位 g
-- `gx_dps ... gz_dps`：陀螺仪，单位 °/s
-- `mx_uT ... mz_uT`：磁力计，单位 μT
-- `roll_deg / pitch_deg / yaw_deg`：姿态角，单位 °
+其中 P 为俯仰角，R 为滚转角，单位为度。协议解析器也接受实验性 `X`、`Y` 扩展字段，但现有固件默认不输出位置数据；仅靠 MEMS 加速度双重积分得到的位置会快速漂移，不应作为可靠定位结果。
 
-当前模拟器输出的是合成数据，目的是验证数据管道，不代表真实传感器测量精度。
-
-## 仓库结构
+## 仓库目录
 
 ```text
 imu-attitude-lab/
-├── README.md
-├── docs/
-│   ├── DESIGN.md
-│   └── ROADMAP.md
-├── firmware/stm32f103/README.md
-├── host/imu_lab/
-│   ├── protocol.py
-│   ├── simulator.py
-│   └── cli.py
-├── tests/test_protocol.py
-├── data/.gitkeep
-└── .gitignore
+├── firmware/stm32f103/       # 现有 Keil 工程与固件说明
+├── host/imu_lab/              # 协议、模拟器和命令行工具
+├── host/visualize.py          # 对接真实 STM32 串口的 VPython 上位机
+├── tests/                     # 单元测试
+├── data/                      # 本地实验数据目录，不提交生成数据
+├── docs/                      # 接线、设计、状态与迭代文档
+└── requirements.txt
 ```
 
-## 项目展示时应该诚实区分
+## 简历描述建议
 
-- 只运行模拟器：软件起步版 / 数据协议原型。
-- 接入真实 STM32 与 MPU9250，并验证传感器读数：嵌入式软硬件项目。
-- 完成滤波、校准和误差评估：有算法验证的嵌入式测量系统。
+可以根据实际复现情况写为：
 
-请只把自己实际完成、能解释并复现的部分写进简历。
+> 基于 STM32F103C8T6 与 MPU9250 实现嵌入式姿态测量原型，完成 I2C 六轴传感器数据采集、加速度计/陀螺仪互补滤波及 Pitch/Roll 实时解算；通过 UART/CH340 建立上下位机通信，使用 Python、pyserial 和 VPython 开发实时三维姿态可视化工具，并补充串口协议解析测试与工程文档。
+
+只能保留自己实际做过且能现场解释、复现的内容。不要将计划中的磁力计融合、Yaw、精度指标或可靠定位写成已经完成。

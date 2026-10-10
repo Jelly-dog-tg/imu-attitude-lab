@@ -1,26 +1,34 @@
-# Python
-__pycache__/
-*.py[cod]
+# Python environments and caches
 .venv/
 venv/
+__pycache__/
+*.py[cod]
 .pytest_cache/
+.idea/
+.vscode/
 
-# Generated data
+# Generated data and logs
 data/*.txt
 data/*.csv
+data/*.log
 !data/.gitkeep
 
-# IDE / OS
-.vscode/
-.idea/
-.DS_Store
-Thumbs.db
-
-# STM32 build output (later stages)
-Debug/
-Release/
-build/
-*.elf
+# Keil uVision user preferences and build outputs
+*.uvoptx
+*.uvguix.*
+firmware/**/Objects/
+firmware/**/Listings/
+*.axf
 *.hex
 *.bin
+*.elf
 *.map
+*.o
+*.d
+*.dep
+*.lnp
+*.htm
+
+# OS files
+.DS_Store
+Thumbs.db

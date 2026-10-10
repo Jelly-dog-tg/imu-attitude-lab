@@ -1,37 +1,30 @@
-# Milestone roadmap
+# 迭代路线图
 
-## M0 — Repository and data contract (current)
-- [x] Python package structure
-- [x] Synthetic stream generator
-- [x] Protocol parser and formatter
-- [x] Seven protocol unit tests
+## M0 — GitHub 工程归档（当前）
+- [x] 初始工程结构、模拟数据和基础协议测试
+- [x] 接入现有 STM32 Keil 工程与真实硬件串口协议
+- [x] 上位机 3D 可视化脚本整理
+- [x] 为真实 `P/R` 协议增加解析器和单元测试
 
-## M1 — Host-side data tools
-- [ ] Read a text stream and validate every record
-- [ ] Write clean records to CSV
-- [ ] Plot roll/pitch/yaw against time
-- [ ] Report malformed lines and sequence gaps
+## M1 — 上位机工程化
+- [ ] 把串口号、波特率、日志位置放到配置/命令行
+- [ ] 记录每帧接收时间、有效帧/异常帧数量和断连事件
+- [ ] 支持把真实串口数据保存为 CSV，再离线回放
+- [ ] 增加截图、演示视频与复现实验步骤
 
-## M2 — Sensor algorithm
-- [ ] Implement accelerometer-based roll/pitch calculation
-- [ ] Implement gyro integration
-- [ ] Implement complementary filter
-- [ ] Compare raw estimates with filtered angles and quantify error
+## M2 — 固件健壮性
+- [ ] I2C 读写增加超时、返回状态与错误计数
+- [ ] 使用一次多字节突发读取减少逐寄存器访问开销
+- [ ] 用定时器或基于系统时钟的时间差替代不精确忙等采样
+- [ ] 固定宽度有符号转换、量程/单位及坐标系写入文档
 
-## M3 — Physical sensor bring-up
-- [ ] Create STM32CubeIDE project for STM32F103
-- [ ] Confirm I2C communication with MPU9250 and read WHO_AM_I
-- [ ] Read raw accelerometer/gyroscope/magnetometer values
-- [ ] Check units, scale factors, sample rate, and sensor saturation
+## M3 — 数据质量与算法验证
+- [ ] 静态多姿态校准与重复实验
+- [ ] 记录原始数据并离线比较滤波前后结果
+- [ ] 统计稳定性、延迟、丢帧和角度误差（需真实参考设备）
+- [ ] 磁力计标定、倾斜补偿和 Yaw 解算
 
-## M4 — Device-host integration
-- [ ] Stream data through UART at a documented baud rate
-- [ ] Connect actual serial input to parser
-- [ ] Live plot and record an experiment
-- [ ] Test disconnect/reconnect and malformed frames
-
-## M5 — Engineering polish
-- [ ] Configuration file and command-line options
-- [ ] Logging and diagnostic counters
-- [ ] CI running unit tests
-- [ ] Architecture diagram, demo recording, reproducible test instructions
+## M4 — 求职展示
+- [ ] 架构图、硬件接线图、测试方法、已知限制
+- [ ] 录制一次上电、接收、模型随动的完整演示
+- [ ] 形成简历项目描述，并准备能解释每一行关键代码的面试问答

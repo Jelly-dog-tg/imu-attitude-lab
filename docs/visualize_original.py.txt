@@ -1,0 +1,68 @@
+import serial
+import time
+from vpython import *
+
+# ======================= 配置区域 =======================
+SERIAL_PORT = 'COM3'
+BAUD_RATE = 9600
+# ========================================================
+
+
+# --- 1. 初始化串口 ---
+try:
+    ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.1)
+    print(f"成功连接到串口 {SERIAL_PORT}")
+except Exception as e:
+    print(f"\n[错误] 无法打开串口 {SERIAL_PORT}。\n原因: {e}\n")
+    exit()
+
+# --- 2. 创建3D场景 ---
+scene.title = "STM32 实时姿态可视化 (飞机模型)"
+scene.caption = "下方是数据输出"
+scene.width = 800
+scene.height = 600
+scene.background = color.gray(0.1)
+
+# ---【核心修改在这里！】---
+# a. 创建飞机的各个部件
+fuselage = cylinder(pos=vec(0, 0, 0), axis=vec(4, 0, 0), radius=0.4, color=color.white)  # 机身
+wing = box(pos=vec(1.5, 0, 0), size=vec(0.2, 0.1, 5), color=color.red)  # 机翼 (size 分别是长、高、宽)
+tail = box(pos=vec(3.8, 0.2, 0), size=vec(0.2, 1, 0.1), color=color.red)  # 尾翼
+
+# b. 使用 compound() 函数将所有部件组合成一个名为 "airplane" 的整体
+#    这样，我们只需要控制 airplane 整体，所有部件都会跟着动
+airplane = compound([fuselage, wing, tail], make_trail=True, trail_type="points", trail_radius=0.05)
+
+print("3D飞机模型已创建。等待 STM32 发送数据...")
+
+# --- 3. 主循环：接收数据并更新飞机模型 ---
+while True:
+    try:
+        # a. 读取并解析数据
+        line = ser.readline().decode('utf-8').strip()
+        if line.startswith("P:") and ",R:" in line:
+            parts = line.split(',')
+            pitch_str = parts[0].split(':')[1]
+            roll_str = parts[1].split(':')[1]
+            pitch = float(pitch_str)
+            roll = float(roll_str)
+
+            scene.caption = f"Pitch:{pitch:.2f}, Roll:{roll:.2f}"
+
+            # b. 角度转弧度
+            pitch_rad = radians(pitch)
+            roll_rad = radians(roll)
+
+            # c. 更新 "airplane" 整体的姿态
+            #    (注意：这里所有的 'board' 都被换成了 'airplane')
+            airplane.axis = vec(1, 0, 0)
+            airplane.up = vec(0, 1, 0)
+
+            # 使用你之前校准好的轴向和正负号
+            airplane.rotate(angle=roll_rad, axis=vec(1, 0, 0))
+            airplane.rotate(angle=-pitch_rad, axis=vec(0, 0, 1))
+
+    except Exception:
+        pass
+
+    rate(100)
